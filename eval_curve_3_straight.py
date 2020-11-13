@@ -3,9 +3,12 @@
 import numpy as np
 import sys
 import yaml
+import matplotlib.pyplot as plt
 
 import os
 import traceback
+
+
 
 def read_estimation_robot(test_number, est_type):
 	# read estimation from robot
@@ -15,7 +18,7 @@ def read_estimation_robot(test_number, est_type):
 	data = data[:, [0, 2, 4, 7]] # est_time, stamp_time, d, phi
 	#print(data[0,0]- data[1,1])
 
-	t_est = data[:,0] / 1e9
+	t_est = data[:,1] / 1e9
 	delay = data[:,0] - data[:,1]
 	d = data[:,2]
 	phi_est = data[:,3]
@@ -77,11 +80,7 @@ def read_truth_localization(test_number):
 		x =  (final_array[entry][0][0] )   #-2.2
 		y = final_array[entry][0][1]  #+ 0.8
 		alpha = final_array[entry][1]
-		#if x < 0:
-		#   print("%s %s %s %s" %(x,y,alpha, entry))
-		#if y < 0:
-		#   print("%s %s %s %s" %(x,y,alpha, entry))
-		#
+
 
 		x_true = np.append(x_true, x)
 		y_true = np.append(y_true, y)
@@ -91,95 +90,99 @@ def read_truth_localization(test_number):
 		
 
 	#copy from notebook
+
 	return(t_true, timestart, x_true, y_true, alpha_true)
 
 
 def write_to_file(test_number, est_type, mean, stdev):
 	f = open("./evaluation_results.txt", "a")
-	f.write(str(test_number)+ "," + str(est_type) + "," + str(mean)  + "," + str(stdev)+"\n")
+	f.write(str(test_number)+ "," + est_type + "," + str(mean)  + "," + str(stdev)+"\n")
+
 	f.close()
 	return
 
 
-def evaluate_estimation(phi_est, t_est, t_all, t_0, x, y, alpha):
+def evaluate_estimation(phi_est, t_est, t_all, t_0, x, y, alpha, est_type):
+
 	a=0.6
-	b=1.185
+	b=2.1 #1.185
 	phi_true = np.zeros((0,1))
 	t_true = np.zeros((0,1))
+	t_plot = np.zeros((0,1))
+	mean_stdev = np.zeros((0,3))
+	k =0
 
 
 	for i in range(len(t_all)):
-	#while i < len(t_true):
-		#sector 1:
-		if x[i] > a and x[i] < b and y[i] < a+0.1:
-			#print("1-")
-			if abs(alpha[i]) > np.pi/2:
-				alpha[i] += np.pi
-			#	print("1")
 
-		#sector 2:
-		elif x[i] > b - 0.1 and y[i] > a and y[i] < b:
+		if x[i] > 1.6 and y[i] > a and y[i] < b:
 			alpha[i] -= np.sign(alpha[i]) * np.pi/2
-			#print("2")
-		#sector 3
-		elif x[i] > a and x[i] < b and y[i] > b -0.1:
-			if abs(alpha[i]) > np.pi/2:
-				alpha[i] -= np.sign(alpha[i]) * np.pi
-				#print("3")
-		#sector 4
-		elif x[i] < a + 0.1 and y[i] > a and y[i] < b:
-			alpha[i] -= np.sign(alpha[i]) * np.pi/2
-			#print("4 %s %s %s" %(x[i], y[i], alpha[i]))
 
-		else:
-			#print("curve%s %s" %(x[i], y[i]))
-			continue
+		
+			phi_true = np.append(phi_true, alpha[i])
+			t_true = np.append(t_true, float(t_all[i]) + t_0)
+			t_plot = np.append(t_plot, float(t_all[i]))
 
-		phi_true = np.append(phi_true, alpha[i])
-		t_true = np.append(t_true, float(t_all[i]) + t_0)
-
-
-	#print(phi_true)
-	#print(t_true)
+	i = 1
+	print(len(t_true))
+	while i < len(t_true)-2:
+		phi_true[i] = 0.25 * phi_true[i-1] + 0.5 * phi_true[i] + 0.25 *phi_true[i+1]
+		#phi_true[i] = (phi_true[i-1] +phi_true[i] + phi_true[i+1])/3
+		i+=1
+	#error = phi_true
+	#plt.plot(t_true -t_true[0], phi_true, xlabel = "a")
+	# plt.set_xlabel('time [s]')
+	# plt.set_ylabel('phi_localization [rad]')
+	#plt.savefig("./phi_true_push-line.png")
+	#print(len(phi_true))
 
 
-
-	u = 0
-	i = 0
+	u=0
 	phi_comp = np.zeros((0,1))
+	i =0
 	while i < len(t_true):
+		if i < len(t_true) -1:
+
+			while abs(phi_true[i+1] - phi_true[i]) > 0.1:
+				print("delete", t_true[i+1]-t_true[0], phi_true[i+1])
+				t_true = np.delete(t_true, i+1)
+				phi_true = np.delete(phi_true, i+1)
+
+
+			if t_true[i+1] - t_true[i] > 0.5:
+				t_true = np.insert(t_true, i+1, 0.5 * (t_true[i+1] + t_true[i]))
+				phi_true = np.insert(phi_true, i+1, 0.5 * (phi_true[i+1] + phi_true[i]))
+	
 		if t_true[i] < t_est[u]:
 			phi_comp = np.append(phi_comp, (phi_est[u] - phi_est[u-1]) / (t_est[u] - t_est[u-1]) * (t_true[i] - t_est[u-1]) + phi_est[u-1])
 			p = (phi_est[u] - phi_est[u-1]) / (t_est[u] - t_est[u-1]) * (t_true[i] - t_est[u-1]) + phi_est[u-1]
-			#print(t_true[i], t_est[u])
-			#print("vor %s interpl %s nach %s" %(phi_est[u-1],p,phi_est[u]))
 			i += 1
 		
 		else:
 			u += 1
 
-	#print(phi_comp)
-
-	error = phi_true - phi_comp
-	#print(error)
-
+	error = phi_comp - phi_true
+	
 	mean = np.mean(error)
 	stdev = np.std(error)
+
 	print(mean, stdev)
 	return(mean, stdev)
 
 
 if __name__ ==	"__main__":
 
+
 	test_number = sys.argv[1]
 
 	for w in (["SF", "cam"]):
+	#for w in (["SF"]):
 		print(w)
 
 		t_est, phi_est = read_estimation_robot(test_number, w)
-
+		#t_est, phi_est =0,0
 		t_all, t_0, x, y, alpha = read_truth_localization(test_number)
-
-		mean, stdev = evaluate_estimation(phi_est, t_est, t_all, t_0, x, y, alpha)
+		#t_all, t_0, x, y, alpha = 0,0,0,0,0
+		mean, stdev = evaluate_estimation(phi_est, t_est, t_all, t_0, x, y, alpha, w)
 
 		write_to_file(test_number, w, mean, stdev)
